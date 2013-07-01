@@ -7,6 +7,14 @@ from random import random
 from math import floor, fabs
 import os
 
+WHITE = np.array([255,255,255])
+BLACK = np.array([0,0,0])
+RED = np.array([255,0,0])
+GREEN = np.array([0,255,0])
+BLUE = np.array([0,0,255])
+
+
+
 class ImageManipulation:
 
     def __init__(self):
@@ -18,9 +26,18 @@ class ImageManipulation:
             for y in xrange(self.w):
                 #gray = sum(pixels[x,y][list(1 * n for n in xrange(-4,-1))])/3
                 #A = pixels[x,y][-1]
-                (R,G,B,A) = pixels[x,y]
+                (R,G,B) = pixels[x,y]
                 gray = (int(R)+int(G)+int(B))/3
-                pixels[x,y] = (gray, gray, gray, A)
+                pixels[x,y] = (gray, gray, gray)
+        return pixels
+
+    def threshold(self, pixels, t):
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+                if pixels[x,y][0] > t:
+                    pixels[x,y] = np.array([255,255,255])
+                else:
+                    pixels[x,y] = np.array([0,0,0])
         return pixels
 
     def resize(self, oldPixels, (nW, nH)):
@@ -31,7 +48,7 @@ class ImageManipulation:
         ratioW = (self.w * 1.0) / nW# ; print 'ratio w', ratioW
         ratioH = (self.h * 1.0) / nH# ; print 'ratio h', ratioH
 
-        pixels = np.zeros( (nH, nW, 4) )
+        pixels = np.zeros( (nH, nW, 3) )
 
         for x in xrange(nH):
             for y in xrange(nW):
@@ -62,9 +79,9 @@ class ImageManipulation:
                 if random() < probab: # true add noise
                     total += 1
                     if random() < 0.5: #black noise
-                        pixels[x,y] = (0,0,0,255)
+                        pixels[x,y] = (0,0,0)
                     else: # white noise
-                        pixels[x,y] = (255,255,255,255)
+                        pixels[x,y] = (255,255,255)
         print 'Modified', total, 'pixels with noise'
         return pixels
 
@@ -111,7 +128,7 @@ class ImageManipulation:
         halfM = maskH >> 1 # division by 2
         for x in xrange(self.h):
             for y in xrange(self.w):
-                mSum = np.array([0.0, 0.0, 0.0, 0.0])
+                mSum = np.array([0.0, 0.0, 0.0])
                 for i in xrange(maskH):
                     centerI = i - halfM
                     for j in xrange(maskW):
@@ -139,11 +156,73 @@ class ImageManipulation:
         im.save('gradient-magnitude.png')
         return newPixels
 
+    def getPixelsInBorder(self, pixels):
+        pixelsBorder = list()
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+                if (pixels[x,y] == WHITE).all():
+                    pixelsBorder.append((x,y))
+        return pixelsBorder
+                    
+
     def normalize(self, toNormal):
         #Val1 = (Val0 - minVal)/longitud
         print toNormal.shape
         print np.amax(toNormal)
         print np.amin(toNormal)
+
+    def DFS(self, pixels, origin, visited, color):
+        h,w,_ = pixels.shape
+        q = [origin]
+        visited = list()
+        mass = []
+        xs = []
+        ys = []
+        original = pixels[origin]
+        n = 0
+        while len(q) > 0:
+            (x,y) = q.pop(0)
+            if (x,y) in visited:
+                continue
+            current = pixels[x,y]
+            if (current == original).all() or (current == color).all():
+                for dx in [-1,0,1]:
+                    for dy in [-1,0,1]:
+                        i,j = (x+dx, y+dy)
+                        if (i,j) in visited:
+                            continue
+                        if i >= 0 and i < h and j >= 0 and j < w:
+                            print 'Inside', x,y,'-',i,j
+                            content = pixels[i,j]
+                            visited.append((i,j))
+                            if (content == original).all():
+                                pixels[i,j] = color
+                                mass.append( (i,j) )
+                                n += 1
+                                q.append((i,j))
+        return n, mass, visited
+
+    def detectForms(self, pixels, ignorePercent = 2.0):
+        h,w,_ = pixels.shape
+        total =  w*h
+        visited = list()
+        percent = list()
+        cent = list()
+        count = 0
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+                if (pixels[x,y] == BLACK).all():
+                    ranColor = self.getRandomColor()
+                    n,mass, visited = self.DFS(pixels, (x,y), visited, ranColor)
+                    p = float(n)/float(total) * 100.0
+                    if p > ignorePercent:
+                        cent.append( (sum(mass[0])/len(mass[0]), sum(mass[1])/len(mass[1])) )
+                        percent.append( [p, ranColor] )
+                        count += 1
+        print 'Done'
+
+    def getRandomColor(self):
+        return np.random.randint(0, high=255, size=(1,3))
 
 if __name__ == '__main__':
     iM = ImageManipulation()
@@ -152,7 +231,7 @@ if __name__ == '__main__':
     except IndexError:
         exit('Please specify a valid path to the file\n')
         
-    im = Image.open(pathToImage).convert('RGBA')
+    im = Image.open(pathToImage).convert('RGB')
     iM.originalImage = im.copy()
     (iM.w,iM.h) = im.size
     print 'Image size:', iM.w,iM.h
@@ -162,6 +241,7 @@ if __name__ == '__main__':
     action = ''
     options = '\n What do you want to do?\n' + \
         '    g : image to grayscale\n' + \
+        '    t : apply a threshold\n' + \
         '    r : resize image\n' + \
         '    n : add noise\n' + \
         '    m : apply a mask\n' + \
@@ -174,6 +254,9 @@ if __name__ == '__main__':
         #os.system('cls' if os.name == 'nt' else 'clear')
         if action == 'g':
             pixels = iM.grayscale(pixels)
+        elif action == 't':
+            t = int( raw_input('Threshold value: ') )
+            pixels = iM.threshold(pixels, t)
         elif action == 'r':
             newSize = str(raw_input('New size (e.g. width height): '))
             newSize = newSize.split(' ', 1)
@@ -206,12 +289,17 @@ if __name__ == '__main__':
                 gradientX = iM.convolution(pixels, mask1) # mask in X
                 gradientY = iM.convolution(pixels, mask2) # mask in y
 
-                iM.getMagnitude(gradientX,gradientY)
+                pixels = iM.getMagnitude(gradientX,gradientY)
+
+                pixelsInBorder = iM.getPixelsInBorder(pixels)
+                print 'Number of pixels in border:', len(pixelsInBorder)
                 
                 action = 'noShow'
             except TypeError as e:
                 print 'Please specify only an option from the list', e
                 action = 'noShow'
+        elif action == 'df':
+            iM.detectForms(pixels, ignorePercent = 2.0)
         elif action == 's':
             im.save('output.png')
             action = 'noShow'
