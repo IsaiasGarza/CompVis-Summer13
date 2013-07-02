@@ -9,6 +9,7 @@ import os
 
 WHITE = np.array([255,255,255])
 BLACK = np.array([0,0,0])
+GRAY28 = np.array([71,71,71])
 RED = np.array([255,0,0])
 GREEN = np.array([0,255,0])
 BLUE = np.array([0,0,255])
@@ -29,6 +30,47 @@ class ImageManipulation:
                 (R,G,B) = pixels[x,y]
                 gray = (int(R)+int(G)+int(B))/3
                 pixels[x,y] = (gray, gray, gray)
+        return pixels
+
+    def polarize(self, pixels):
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+                (R,G,B) = pixels[x,y]
+                pixels[x,y] = np.array([ 255-R, 255-G, 255-B ])
+        return pixels
+
+    def tone(self, pixels):
+        t = ' '
+        while t not in 'RGB':
+            t = str(raw_input('Which tone [R,G,B]: '))
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+
+                (R,G,B) = pixels[x,y]
+
+                if t == 'R':
+                    newTone = np.array([ R,0,0 ])
+                elif t == 'G':
+                    newTone = np.array([ 0,G,0 ])
+                elif t == 'B':
+                    newTone = np.array([ 0,0,B ])
+
+                pixels[x,y] = newTone
+        return pixels
+
+    def brighten(self, pixels, beta=None):
+        if beta == None:
+            beta = 30
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+                R,G,B = pixels[x,y]
+                R+=beta
+                G+=beta
+                B+=beta
+                if (R>255):R=255
+                if (G>255):G=255
+                if (B>255):B=255
+                pixels[x,y] = np.array([R,G,B])
         return pixels
 
     def threshold(self, pixels, t):
@@ -172,40 +214,36 @@ class ImageManipulation:
         print np.amin(toNormal)
 
     def DFS(self, pixels, origin, visited, color):
-        h,w,_ = pixels.shape
-        q = [origin]
-        visited = list()
-        mass = []
-        xs = []
-        ys = []
+        queue = list()
+        xCoord = list()
+        yCoord = list()
+        queue.append(origin)
         original = pixels[origin]
         n = 0
-        while len(q) > 0:
-            (x,y) = q.pop(0)
-            if (x,y) in visited:
-                continue
-            current = pixels[x,y]
-            if (current == original).all() or (current == color).all():
+        while len(queue) > 0:
+            (x,y) = queue.pop(0)
+            actual = pixels[x,y]
+            if (actual == original).all() or (actual == color).all():
                 for dx in [-1,0,1]:
                     for dy in [-1,0,1]:
-                        i,j = (x+dx, y+dy)
+                        i,j = (x+dx,y+dy)
                         if (i,j) in visited:
                             continue
-                        if i >= 0 and i < h and j >= 0 and j < w:
-                            print 'Inside', x,y,'-',i,j
+                        if i>=0 and i<self.h and j>=0 and j<self.w:
                             content = pixels[i,j]
-                            visited.append((i,j))
+                            visited.add((i,j))
                             if (content == original).all():
                                 pixels[i,j] = color
-                                mass.append( (i,j) )
-                                n += 1
-                                q.append((i,j))
-        return n, mass, visited
+                                xCoord.append(i)
+                                yCoord.append(j)
+                                n+=1
+                                queue.append((i,j))
+        return n,(xCoord,yCoord)
 
     def detectForms(self, pixels, ignorePercent = 2.0):
         h,w,_ = pixels.shape
         total =  w*h
-        visited = list()
+        visited = set()
         percent = list()
         cent = list()
         count = 0
@@ -213,12 +251,21 @@ class ImageManipulation:
             for y in xrange(self.w):
                 if (pixels[x,y] == BLACK).all():
                     ranColor = self.getRandomColor()
-                    n,mass, visited = self.DFS(pixels, (x,y), visited, ranColor)
+                    n,(i,j) = self.DFS(pixels, (x,y), visited, ranColor)
                     p = float(n)/float(total) * 100.0
                     if p > ignorePercent:
-                        cent.append( (sum(mass[0])/len(mass[0]), sum(mass[1])/len(mass[1])) )
+                        cent.append( (sum(i)/len(i), sum(j)/len(j)) )
                         percent.append( [p, ranColor] )
                         count += 1
+        background = percent.index(max(percent))
+        backgroundColor = percent[background][1]
+
+        for x in xrange(self.h):
+            for y in xrange(self.w):
+                if (pixels[x,y] == backgroundColor).all():
+                    pixels[x,y] = GRAY28
+
+
         print 'Done'
 
     def getRandomColor(self):
@@ -240,13 +287,16 @@ if __name__ == '__main__':
 
     action = ''
     options = '\n What do you want to do?\n' + \
-        '    g : image to grayscale\n' + \
-        '    t : apply a threshold\n' + \
-        '    r : resize image\n' + \
-        '    n : add noise\n' + \
-        '    m : apply a mask\n' + \
-        '    s : save to file\n' + \
-        '    q : quit the program\n'
+        '    g  : image to grayscale\n' + \
+        '    p  : polarize an image\n' + \
+        '    br : apply bright\n' + \
+        '    to : apply a tone\n' + \
+        '    th : apply a threshold\n' + \
+        '    r  : resize image\n' + \
+        '    n  : add noise\n' + \
+        '    m  : apply a mask\n' + \
+        '    s  : save to file\n' + \
+        '    q  : quit the program\n'
 
     while action != 'q':
         action = raw_input(options)
@@ -254,7 +304,13 @@ if __name__ == '__main__':
         #os.system('cls' if os.name == 'nt' else 'clear')
         if action == 'g':
             pixels = iM.grayscale(pixels)
-        elif action == 't':
+        elif action == 'p':
+            pixels = iM.polarize(pixels)
+        elif action == 'br':
+            pixels = iM.brighten(pixels, beta=15)
+        elif action == 'to':
+            pixels = iM.tone(pixels)
+        elif action == 'th':
             t = int( raw_input('Threshold value: ') )
             pixels = iM.threshold(pixels, t)
         elif action == 'r':
@@ -292,6 +348,7 @@ if __name__ == '__main__':
                 pixels = iM.getMagnitude(gradientX,gradientY)
 
                 pixelsInBorder = iM.getPixelsInBorder(pixels)
+                self.pixelsInBorder = pixelsInBorder
                 print 'Number of pixels in border:', len(pixelsInBorder)
                 
                 action = 'noShow'
