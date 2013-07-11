@@ -2,7 +2,7 @@
 
 import sys
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from random import random
 from math import floor, ceil, fabs, degrees, cos, sin, atan2, sqrt,radians
 from filters import *
@@ -305,6 +305,82 @@ class ImageManipulation:
                     #    pixels[i,j] = ORANGE
         return lines, freq
 
+    def findMins(self, aList, compSens=15):
+        minList = list()
+        
+        for i in xrange( len(aList) ):
+            try:
+                if aList[i-compSens] > aList[i] and aList[i] < aList[i+compSens]:
+                    minList.append( i )
+            except:
+                continue
+        return minList
+
+    def saveHistograms(self,xHist,yHist):
+        f = open('histogram-X.dat','w')
+        for x in xrange(len(xHist)):
+            f.write(str(x) + ',' + str(xHist[x]) + '\n')
+        f.close()
+        f = open('histogram-Y.dat','w')
+        sumY = 0
+        for y in xrange(len(yHist)):
+            f.write( str(y) + ',' + str(yHist[y]) + '\n')
+        f.close()
+
+    def detectHoles(self, pixels, holeColor):
+        h,w,_ = pixels.shape
+        # get histograms
+        rows = list()
+        for x in xrange(h):
+            columns = list()
+            for y in xrange(w):
+                columns.append( pixels[x,y][0] )
+            rows.append( pixels[x,y][0] )
+
+
+        rows = list()
+        for x in xrange(h):
+            acumulator = 0
+            for y in xrange(w):
+                acumulator += pixels[x,y][0]
+            rows.append( acumulator )
+
+
+        columns = list()
+        for y in xrange(w):
+            acumulator = 0
+            for x in xrange(h):
+                acumulator += pixels[x,y][0]
+            columns.append( acumulator )
+
+
+        print 'Len(rows)', len(rows)
+        print 'Len(columns)', len(columns)
+
+        self.saveHistograms(columns,rows)
+        
+        # find mins, mins are for black holes
+        # maxs when white
+        rowMin= iM.findMins(rows,5) #7
+        columnMin= iM.findMins(columns,6) #6
+
+        print 'Mins in rows', rowMin
+        print 'Mins in columns', columnMin
+
+        # draw lines
+        im = Image.fromarray(np.uint8(pixels))
+        draw = ImageDraw.Draw(im)
+
+        for m in rowMin:
+            draw.line( ((0,m),(w,m)), fill=(0,255,0))
+
+        for m in columnMin:
+            draw.line( ((m,0),(m,h)), fill=(0,0,255))
+
+        im.save('hole-detection.png')
+        return pixels
+
+
 if __name__ == '__main__':
     iM = ImageManipulation()
     fil = Filters()
@@ -317,7 +393,7 @@ if __name__ == '__main__':
     im = Image.open(pathToImage).convert('RGB')
     iM.originalImage = im.copy()
     (iM.w,iM.h) = im.size
-    print 'Image size:', iM.w,iM.h
+    print 'Image size: (w h)', iM.w,iM.h
     pixels = np.array(im)
 
     action = ''
@@ -334,6 +410,7 @@ if __name__ == '__main__':
         '    df : detect forms\n' + \
         '    dl : detect lines\n' + \
         '    dc : detect circles\n' + \
+        '    dh : detect holes\n' + \
         '    s  : save to file\n' + \
         '    q  : quit the program\n'
 
@@ -413,6 +490,8 @@ if __name__ == '__main__':
             print 'Getting gradient Y'
             gradY = iM.convolution(pixels, mask2)
             iM.detectCircles(pixels, gradX, gradY, radio)
+        elif action == 'dh':
+            pixels = iM.detectHoles(pixels, 0)
         elif action == 's':
             im.save('output.png')
             action = 'noShow'
